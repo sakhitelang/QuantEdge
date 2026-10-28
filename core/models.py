@@ -1,8 +1,8 @@
 """
-QuantEdge AI — Reinforcement Learning Engine (PPO Actor-Critic)
+QuantEdge AI — Reinforcement Learning Engine (Basic Actor-Critic)
 Custom Markov Decision Process (MDP) for Indian Equities (NSE / BSE).
 Deep Actor-Critic neural network with exact 9,573 parameter architecture,
-PPO with GAE, semi-variance penalty, and Indian transaction friction modeling.
+Basic TD Actor-Critic policy gradient and value baseline estimation, semi-variance penalty, and Indian transaction friction modeling.
 """
 
 import math
@@ -264,21 +264,18 @@ class ActorCriticNetwork(nn.Module):
         probs_np = probs.detach().cpu().numpy().squeeze()
 
         return action_idx, log_prob, val_scalar, probs_np
-
-
 # =====================================================================
-# PPO Optimizer with GAE and Surrogate Clipping
+# Basic Actor-Critic Optimizer
 # =====================================================================
 
-class PPOOptimizer:
+class ActorCriticOptimizer:
     """
-    Proximal Policy Optimization (PPO) engine:
-    - Generalized Advantage Estimation (GAE) with gamma=0.99, lambda=0.95
-    - Advantage Standardization / Normalization
-    - Clipped Surrogate Objective (epsilon=0.2)
-    - Critic MSE Baseline Loss
-    - Entropy Regularization Bonus
-    - Adam Optimizer with gradient norm clipping (0.5)
+    Foundational Actor-Critic (AC) optimization engine:
+    - Pure Actor-Critic architecture without surrogate clipping, policy ratios, or GAE.
+    - 1-step TD Error (delta): delta_t = r_t + gamma * V(s_{t+1}) * (1 - done_t) - V(s_t)
+    - Actor Policy Gradient Loss: -E[ log_prob(a) * delta ]
+    - Critic Value Baseline MSE Loss: 0.5 * E[ (V(s) - Target)^2 ]
+    - Standard optimizer update without extra heuristic modifications.
     """
 
     def __init__(
@@ -286,125 +283,77 @@ class PPOOptimizer:
         network: ActorCriticNetwork,
         lr: float = 1.8e-3,
         gamma: float = 0.99,
-        gae_lambda: float = 0.95,
-        clip_eps: float = 0.2,
         vf_coef: float = 0.5,
-        ent_coef: float = 0.02,
-        max_grad_norm: float = 0.5,
     ):
         self.network = network
         self.gamma = gamma
-        self.gae_lambda = gae_lambda
-        self.clip_eps = clip_eps
         self.vf_coef = vf_coef
-        self.ent_coef = ent_coef
-        self.max_grad_norm = max_grad_norm
-
-        self.optimizer = optim.Adam(self.network.parameters(), lr=lr, eps=1e-5)
+        self.optimizer = optim.Adam(self.network.parameters(), lr=lr)
 
     def train_rollout(
         self,
         env: IndianTradingEnv,
-        epochs: int = 15,
+        epochs: int = 1,
         batch_size: int = 64,
     ) -> Dict[str, float]:
-        """Executes a full episode rollout and optimizes policy via PPO."""
+        """Executes a full episode rollout and optimizes policy via basic Actor-Critic."""
         state = env.reset()
-        states, actions, rewards, values, log_probs, dones = [], [], [], [], [], []
+        states, actions, rewards, next_states, dones = [], [], [], [], []
 
         done = False
         while not done:
             st_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
             with torch.no_grad():
-                action, log_p, val, _ = self.network.get_action_and_value(st_tensor, deterministic=False)
+                action, _, _, _ = self.network.get_action_and_value(st_tensor, deterministic=False)
 
             next_state, reward, done, _ = env.step(action)
 
             states.append(state)
             actions.append(action)
             rewards.append(reward)
-            values.append(val)
-            log_probs.append(log_p)
+            next_states.append(next_state)
             dones.append(1.0 if done else 0.0)
 
             state = next_state
 
-        # Terminal state value
-        st_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0)
-        with torch.no_grad():
-            _, last_val = self.network(st_tensor)
-            values.append(float(last_val.squeeze().item()))
-
-        # GAE Advantage Calculation
-        t_steps = len(rewards)
-        advantages = np.zeros(t_steps, dtype=np.float32)
-        gae = 0.0
-        for t in reversed(range(t_steps)):
-            delta = rewards[t] + self.gamma * values[t + 1] * (1.0 - dones[t]) - values[t]
-            gae = delta + self.gamma * self.gae_lambda * (1.0 - dones[t]) * gae
-            advantages[t] = gae
-
-        returns = advantages + np.array(values[:-1], dtype=np.float32)
-
-        # Standardize Advantages
-        norm_advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-
-        # Convert to PyTorch Tensors
         b_states = torch.tensor(np.array(states), dtype=torch.float32)
         b_actions = torch.tensor(np.array(actions), dtype=torch.long)
-        b_log_probs = torch.tensor(np.array(log_probs), dtype=torch.float32)
-        b_advantages = torch.tensor(norm_advantages, dtype=torch.float32)
-        b_returns = torch.tensor(returns, dtype=torch.float32)
+        b_rewards = torch.tensor(np.array(rewards), dtype=torch.float32)
+        b_next_states = torch.tensor(np.array(next_states), dtype=torch.float32)
+        b_dones = torch.tensor(np.array(dones), dtype=torch.float32)
 
-        total_loss_val = 0.0
-        policy_loss_val = 0.0
-        value_loss_val = 0.0
+        # Forward pass on rollout states
+        logits, val_pred = self.network(b_states)
+        values = val_pred.squeeze(-1)
 
-        dataset_size = len(states)
-        for _ in range(epochs):
-            indices = np.arange(dataset_size)
-            np.random.shuffle(indices)
+        # 1-step bootstrap target value: r + gamma * V(s') * (1 - done)
+        with torch.no_grad():
+            _, next_val_pred = self.network(b_next_states)
+            next_values = next_val_pred.squeeze(-1)
+            target_values = b_rewards + self.gamma * next_values * (1.0 - b_dones)
 
-            for start in range(0, dataset_size, batch_size):
-                end = min(start + batch_size, dataset_size)
-                mb_idx = indices[start:end]
+        # TD Error (delta)
+        td_error = (target_values - values).detach()
 
-                mb_states = b_states[mb_idx]
-                mb_actions = b_actions[mb_idx]
-                mb_old_log_probs = b_log_probs[mb_idx]
-                mb_adv = b_advantages[mb_idx]
-                mb_ret = b_returns[mb_idx]
+        # Actor Policy Loss: -E[ log_prob(a) * delta ]
+        dist = Categorical(logits=logits)
+        log_probs = dist.log_prob(b_actions)
+        policy_loss = -(log_probs * td_error).mean()
 
-                logits, val_pred = self.network(mb_states)
-                dist = Categorical(logits=logits)
-                new_log_probs = dist.log_prob(mb_actions)
-                entropy = dist.entropy().mean()
+        # Critic MSE Baseline Loss: 0.5 * E[ (V(s) - Target)^2 ]
+        val_loss = 0.5 * ((values - target_values) ** 2).mean()
 
-                # Clipped Surrogate Policy Loss
-                ratios = torch.exp(new_log_probs - mb_old_log_probs)
-                surr1 = ratios * mb_adv
-                surr2 = torch.clamp(ratios, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * mb_adv
-                policy_loss = -torch.min(surr1, surr2).mean()
+        # Total Basic Actor-Critic Loss
+        loss = policy_loss + (self.vf_coef * val_loss)
 
-                # Critic Value Loss
-                val_loss = 0.5 * ((val_pred.squeeze(-1) - mb_ret) ** 2).mean()
-
-                # Total Objective
-                loss = policy_loss + (self.vf_coef * val_loss) - (self.ent_coef * entropy)
-
-                self.optimizer.zero_grad()
-                loss.backward()
-                nn.utils.clip_grad_norm_(self.network.parameters(), self.max_grad_norm)
-                self.optimizer.step()
-
-                total_loss_val += float(loss.item())
-                policy_loss_val += float(policy_loss.item())
-                value_loss_val += float(val_loss.item())
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
 
         return {
-            "total_loss": total_loss_val / (epochs * max(1, dataset_size // batch_size)),
-            "policy_loss": policy_loss_val / (epochs * max(1, dataset_size // batch_size)),
-            "value_loss": value_loss_val / (epochs * max(1, dataset_size // batch_size)),
+            "total_loss": float(loss.item()),
+            "policy_loss": float(policy_loss.item()),
+            "value_loss": float(val_loss.item()),
             "final_portfolio_value": env.portfolio_value,
         }
 
@@ -421,7 +370,7 @@ class RLForecastingSystem:
 
     def __init__(self, state_dim: int = 12, action_dim: int = 4, lr: float = 1.8e-3):
         self.network = ActorCriticNetwork(state_dim=state_dim, action_dim=action_dim)
-        self.optimizer = PPOOptimizer(self.network, lr=lr)
+        self.optimizer = ActorCriticOptimizer(self.network, lr=lr)
 
     def count_parameters(self) -> int:
         return sum(p.numel() for p in self.network.parameters() if p.requires_grad)
@@ -431,10 +380,10 @@ class RLForecastingSystem:
         df: pd.DataFrame,
         vix_val: float = 14.5,
         nifty_ret: float = 0.001,
-        epochs: int = 15,
+        epochs: int = 1,
         repeat_cycles: int = 3,
     ) -> List[Dict[str, float]]:
-        """Trains the PPO agent on local historical market data."""
+        """Trains the basic Actor-Critic agent on local historical market data."""
         mat = prepare_market_state_matrix(df, vix_val=vix_val, nifty_ret=nifty_ret)
         asset_rets = df["Ret_1d"].values.astype(np.float32)
 

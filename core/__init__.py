@@ -15,7 +15,7 @@ from core.features import compute_features
 from core.models import (
     ActorCriticNetwork,
     IndianTradingEnv,
-    PPOOptimizer,
+    ActorCriticOptimizer,
     RLForecastingSystem,
     prepare_market_state_matrix,
     ACTION_NAMES,
@@ -39,7 +39,7 @@ __all__ = [
     "compute_features",
     "ActorCriticNetwork",
     "IndianTradingEnv",
-    "PPOOptimizer",
+    "ActorCriticOptimizer",
     "RLForecastingSystem",
     "prepare_market_state_matrix",
     "ACTION_NAMES",

@@ -10,7 +10,7 @@ from core.risk import RiskGovernor
 
 
 class RLPolicyActorAgent:
-    """Agent representing the PPO Actor policy head."""
+    """Agent representing the Actor policy head."""
 
     def evaluate(self, rl_prediction: Dict[str, Any]) -> Dict[str, Any]:
         return {
@@ -18,12 +18,12 @@ class RLPolicyActorAgent:
             "action": rl_prediction["action"],
             "target_weight": rl_prediction["target_weight"],
             "confidence": rl_prediction["confidence"],
-            "recommendation": f"Allocate {int(rl_prediction['target_weight']*100)}% based on PPO policy head.",
+            "recommendation": f"Allocate {int(rl_prediction['target_weight']*100)}% based on Actor policy head.",
         }
 
 
 class RLValueCriticAgent:
-    """Agent representing the PPO Critic baseline value estimator."""
+    """Agent representing the Critic baseline value estimator."""
 
     def evaluate(self, critic_value: float) -> Dict[str, Any]:
         posture = "BULLISH_ADVANTAGE" if critic_value > 0.05 else ("BEARISH_ADVANTAGE" if critic_value < -0.05 else "NEUTRAL_BASE")

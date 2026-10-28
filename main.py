@@ -2,7 +2,7 @@
 """
 QuantEdge AI — Institutional Indian Stock Market (NSE / BSE) Quantitative RL Engine
 Executes end-to-end data download to local CSVs, quantitative feature computation,
-PPO Actor-Critic reinforcement learning training, multi-agent consensus, and risk governance.
+Actor-Critic reinforcement learning training, multi-agent consensus, and risk governance.
 """
 
 import os
@@ -49,7 +49,7 @@ def print_banner():
  / / / / / / / __ `/ __ \\/ __/ / __/ / __  / __ `/ _ \\    / /| |  / /   
 / /_/ / /_/ / /_/ / / / / /_/ / /___/ /_/ / /_/ /  __/   / ___ |_/ /    
 \\___\\_\\__,_/\\__,_/_/ /_/\\__/_/_____/\\__,_/\\__, /\\___/   /_/  |_/___/    
-       INDIAN STOCK MARKET (NSE / BSE)   /____/  PPO ACTOR-CRITIC ENGINE 
+       INDIAN STOCK MARKET (NSE / BSE)   /____/  ACTOR-CRITIC ENGINE 
 ========================================================================================
     """
     print(banner)
@@ -94,12 +94,12 @@ def run_single_stock_pipeline(symbol: str, epochs: int = 15, explain: bool = Tru
     print(f"    ✔ Classified Regime: [{regime_info['regime']}] (Risk Level: {regime_info['risk_level']})")
     print(f"    ✔ Regime Policy: {regime_info['description']}")
 
-    # 4. PPO Actor-Critic Neural Training
-    print(f"\n[Step 4] Initializing Deep Actor-Critic Network (9,573 Parameters) & PPO Optimizer...")
+    # 4. Actor-Critic Neural Training
+    print(f"\n[Step 4] Initializing Deep Actor-Critic Network (9,573 Parameters) & Optimizer...")
     rl_sys = RLForecastingSystem()
     param_count = rl_sys.count_parameters()
     print(f"    ✔ Exact Trainable Parameter Count: {param_count:,} weights & biases")
-    print(f"    ✔ Executing PPO rollouts (Epochs: {epochs}, GAE: gamma=0.99, lambda=0.95)...")
+    print(f"    ✔ Executing Actor-Critic rollouts (Epochs: {epochs}, gamma=0.99)...")
 
     train_stats = rl_sys.train_on_dataframe(feat_df, vix_val=vix_val, nifty_ret=nifty_ret, epochs=epochs, repeat_cycles=2)
     for stat in train_stats:
@@ -237,7 +237,7 @@ def main():
     parser.add_argument("--download-only", action="store_true", help="Download datasets to data/ and exit")
     parser.add_argument("--symbol", type=str, default="RELIANCE.NS", help="NSE Ticker to analyze (e.g. RELIANCE.NS, TCS.NS, INFY.NS)")
     parser.add_argument("--portfolio", action="store_true", help="Run full 10-stock institutional portfolio simulation")
-    parser.add_argument("--epochs", type=int, default=15, help="Number of PPO training epochs per cycle")
+    parser.add_argument("--epochs", type=int, default=15, help="Number of Actor-Critic training epochs per cycle")
     parser.add_argument("--explain", action="store_true", default=True, help="Compute deep neural attribution and explainability")
 
     args = parser.parse_args()

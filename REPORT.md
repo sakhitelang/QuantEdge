@@ -5,14 +5,14 @@
 
 ### Executive Summary
 
-**QuantEdge AI** is a production-grade, model-free quantitative trading system engineered specifically for the Indian equity universe (NSE/BSE large caps + NIFTY 50 + INDIA VIX). The engine discards naive point-prediction heuristics in favor of a **Markov Decision Process (MDP)** governed by a synchronous **Actor-Critic Proximal Policy Optimization (PPO)** network, **Generalized Advantage Estimation (GAE)**, strict temporal causality, and an autonomous **Multi-Agent Risk Consensus Framework**.
+**QuantEdge AI** is a production-grade, model-free quantitative trading system engineered specifically for the Indian equity universe (NSE/BSE large caps + NIFTY 50 + INDIA VIX). The engine discards naive point-prediction heuristics in favor of a **Markov Decision Process (MDP)** governed by a foundational **Actor-Critic (AC)** network, temporal difference (TD) baseline estimation, strict temporal causality, and an autonomous **Multi-Agent Risk Consensus Framework**.
 
 This report documents:
 1. Complete system architecture and end-to-end data pipelines.
 2. Layer-by-layer mathematical formulation, dimensions, and the exact derivation of its **9,573 trainable parameters**.
 3. Every algorithmic and risk governance hyperparameter.
 4. **Diagnostic Task 1**: Actor-Critic input/output interactions, first-order gradient saliency, and feature attributions driving policy shifts.
-5. **Diagnostic Task 2**: PPO surrogate clipping dynamics across 20 empirical rollout logs, detailing mathematical conditions under which clipping activates or remains idle.
+5. **Diagnostic Task 2**: Actor-Critic temporal difference dynamics across empirical rollout logs, detailing policy gradient updates and value baseline convergence.
 
 ---
 
@@ -25,14 +25,14 @@ This report documents:
     ▼                                ▼                                ▼
 Data Engine                   Core RL Engine                   Risk & Governance
 - Local CSV Ingestion        - 12-dim Normalized State        - Half-Kelly Position Sizing
-- Temporal Causality         - Exact 9,573-param PPO Net      - Dynamic ATR Stops (INR)
-- Zero Lookahead Bias        - GAE (γ=0.99, λ=0.95)           - 95% 1-Day VaR (₹ & %)
-- Top 10 NSE Equities        - Clipped Objective (ε=0.20)     - INDIA VIX > 24 Circuit Breaker
+- Temporal Causality         - Exact 9,573-param AC Net       - Dynamic ATR Stops (INR)
+- Zero Lookahead Bias        - TD Error (γ=0.99)              - 95% 1-Day VaR (₹ & %)
+- Top 10 NSE Equities        - Policy Gradient Loss           - INDIA VIX > 24 Circuit Breaker
 - NIFTY 50 & INDIA VIX       - Sortino Asymmetric Reward      - Multi-Agent Deliberation
 ```
 
 ### Complete Codebase Inventory:
-* [`core/models.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/core/models.py): Actor-Critic network, `IndianTradingEnv` MDP simulator, and `PPOOptimizer`.
+* [`core/models.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/core/models.py): Actor-Critic network, `IndianTradingEnv` MDP simulator, and `ActorCriticOptimizer`.
 * [`core/features.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/core/features.py): Causal feature engineering (RSI-14, MACD, ATR-14, 20d Realized Vol, 50-day SMA distance).
 * [`core/agents.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/core/agents.py): 4-agent consensus deliberation (Actor, Critic, Regime, Risk Governor).
 * [`core/risk.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/core/risk.py): Half-Kelly sizing, dynamic ATR volatility stops (₹), 95% Daily VaR, and crisis override.
@@ -42,7 +42,6 @@ Data Engine                   Core RL Engine                   Risk & Governance
 * [`core/data.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/core/data.py): Local CSV ingestion and persistence.
 * [`app.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/app.py): Clean, institutional dark-theme Streamlit trading terminal (0 emojis).
 * [`telemetry.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/telemetry.py): CLI tool tracking policy probability shifts, layer gradient norms, and loss curves.
-* [`clip_inspector.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/clip_inspector.py): 20-step rollout inspector logging features, advantage $\hat{A}_t$, ratio $r_t(\theta)$, and clipping status.
 
 ---
 
@@ -103,13 +102,9 @@ $$\mathbf{\text{Grand Total Trainable Parameters}} = 960 + 4,288 + 2,212 + 2,113
 
 | Category | Hyperparameter | Symbol | Value | Quantitative Rationale |
 | :--- | :--- | :---: | :---: | :--- |
-| **Optimization** | Learning Rate | $\alpha$ | `1.8e-3` | Tuned for Adam with $\beta_1=0.9, \beta_2=0.999, \epsilon=10^{-5}$. |
-| | Gradient Norm Clip | $\|\mathbf{g}\|_2$ | `0.50` | Prevents destabilizing policy shifts during volatility outliers. |
-| | PPO Clip Threshold | $\epsilon$ | `0.20` | Restricts probability ratio $r_t(\theta) \in [0.80, 1.20]$. |
-| | Value Loss Coef | $c_1$ | `0.50` | Weights the MSE baseline loss $\frac{1}{2}(V(s_t) - V^{\text{targ}})^2$. |
-| | Entropy Regularization | $c_2$ | `0.02` | Penalizes deterministic certainty to ensure adequate policy exploration. |
+| **Optimization** | Learning Rate | $\alpha$ | `1.8e-3` | Standard Adam optimizer learning rate. |
+| | Value Loss Coef | $c_v$ | `0.50` | Weights the MSE baseline loss $\frac{1}{2}(V(s_t) - y_t)^2$. |
 | **Credit Assignment** | Discount Factor | $\gamma$ | `0.99` | Effective holding horizon: $\frac{1}{1-\gamma} \approx 100$ trading days. |
-| | GAE Trace Decay | $\lambda$ | `0.95` | Optimizes bias-variance tradeoff in temporal difference returns. |
 | **Microstructure** | Statutory Friction | $c_{\text{friction}}$ | `0.0010` | 10 bps (0.10%) per turnover modeling STT, GST, NSE charges, and slippage. |
 | | Downside Semi-Variance | $\lambda_{\text{down}}$ | `0.50` | Quadratic penalty on negative returns: $0.5 \times \min(0, r_{\text{step}})^2$. |
 | | Peak Drawdown Penalty | $\lambda_{dd}$ | `0.20` | Linear penalty on depth below all-time portfolio equity peak. |
@@ -179,78 +174,54 @@ Factor Decomposition of Policy Shift:
 
 ---
 
-## 5. Diagnostic Task 2: PPO Surrogate Clipping & 20-Log Telemetry
+## 5. Diagnostic Task 2: Basic Actor-Critic Dynamics & TD Telemetry
 
-### 5.1 Mathematical Foundation of PPO Clipping
-The probability ratio between the newly updated policy $\pi_\theta$ and the rollout behavior policy $\pi_{\theta_{\text{old}}}$ is defined as:
+### 5.1 Mathematical Formulation of Basic Actor-Critic
 
-$$r_t(\theta) = \frac{\pi_\theta(a_t \mid \mathbf{s}_t)}{\pi_{\theta_{\text{old}}}(a_t \mid \mathbf{s}_t)} = \exp\left(\log \pi_\theta(a_t \mid \mathbf{s}_t) - \log \pi_{\theta_{\text{old}}}(a_t \mid \mathbf{s}_t)\right)$$
+Basic Actor-Critic relies on a standard temporal difference (TD) baseline without surrogate clipping or heuristic ratio bounds:
 
-The PPO clipped objective is:
+1. **Target Value**:
+   $$y_t = r_t + \gamma V_\phi(\mathbf{s}_{t+1}) (1 - d_t)$$
 
-$$\mathcal{L}^{\text{CLIP}}(\theta) = \hat{\mathbb{E}}_t \left[ \min\left( r_t(\theta) \widehat{A}_t, \; \text{clip}(r_t(\theta), 1-\epsilon, 1+\epsilon) \widehat{A}_t \right) \right], \quad \text{where } \epsilon = 0.20$$
+2. **Temporal Difference Error ($\delta_t$)**:
+   $$\delta_t = y_t - V_\phi(\mathbf{s}_t)$$
 
-* When $\widehat{A}_t > 0$ (favorable action): The objective increases with $r_t(\theta)$, but is **clipped at $1 + \epsilon = 1.200$**.
-* When $\widehat{A}_t < 0$ (unfavorable action): The objective decreases with $r_t(\theta)$, but is **clipped at $1 - \epsilon = 0.800$**.
+3. **Actor Policy Gradient Loss**:
+   $$\mathcal{L}_{\text{actor}}(\theta) = -\hat{\mathbb{E}}_t \left[ \log \pi_\theta(a_t \mid \mathbf{s}_t) \cdot \delta_t \right]$$
 
-### 5.2 The 20 Rollout Logs Telemetry Table
+4. **Critic Value Baseline MSE Loss**:
+   $$\mathcal{L}_{\text{critic}}(\phi) = \frac{1}{2} \hat{\mathbb{E}}_t \left[ \left( V_\phi(\mathbf{s}_t) - y_t \right)^2 \right]$$
 
-The empirical logs below were generated by [`clip_inspector.py`](file:///Users/sakhitelang/.gemini/antigravity-ide/scratch/quantedge/clip_inspector.py) on NSE daily market bars for `RELIANCE.NS`:
+5. **Joint Objective**:
+   $$\mathcal{L}(\theta, \phi) = \mathcal{L}_{\text{actor}}(\theta) + c_v \cdot \mathcal{L}_{\text{critic}}(\phi)$$
 
-| Log# | Date | Ret_1d (%) | RSI-14 | MACD Hist | ATR (%) | Action Taken | Critic $V(s)$ | Advantage $\widehat{A}_t$ | Ratio $r_t(\theta)$ | Clipping Status |
-| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :--- |
-| **#1** | 2026-07-28 | -0.96% | 47.4 | -2.52 | 1.78% | `STRONG_BUY` | -0.760 | -0.443 | **1.1599** | **UNCLIPPED (Within Bound) [OK]** |
-| **#2** | 2026-07-31 | +1.15% | 53.6 | +1.03 | 1.65% | `SELL` | -0.876 | -1.342 | **0.7832** | **CLIPPED [LOW < 0.80] (0.783)** |
-| **#3** | 2026-08-05 | -0.84% | 45.8 | +1.12 | 1.79% | `SELL` | -0.762 | -1.178 | **0.9065** | **UNCLIPPED (Within Bound) [OK]** |
-| **#4** | 2026-08-10 | -0.56% | 55.8 | +5.50 | 1.67% | `HOLD` | -0.619 | -1.764 | **0.7648** | **CLIPPED [LOW < 0.80] (0.765)** |
-| **#5** | 2026-08-13 | -0.90% | 60.4 | +4.11 | 1.56% | `HOLD` | -0.665 | -1.394 | **0.7752** | **CLIPPED [LOW < 0.80] (0.775)** |
-| **#6** | 2026-08-18 | +0.46% | 62.5 | +1.96 | 1.64% | `SELL` | -0.603 | -1.858 | **0.8238** | **UNCLIPPED (Within Bound) [OK]** |
-| **#7** | 2026-08-21 | +0.21% | 49.0 | +0.29 | 1.57% | `BUY` | -0.692 | -1.716 | **1.0230** | **UNCLIPPED (Within Bound) [OK]** |
-| **#8** | 2026-08-26 | -1.44% | 37.2 | -1.39 | 1.30% | `BUY` | -0.889 | -0.594 | **0.9844** | **UNCLIPPED (Within Bound) [OK]** |
-| **#9** | 2026-08-31 | -0.78% | 29.6 | -4.57 | 1.41% | `SELL` | -0.997 | -0.598 | **0.9450** | **UNCLIPPED (Within Bound) [OK]** |
-| **#10**| 2026-09-03 | -0.81% | 47.3 | -0.98 | 1.49% | `HOLD` | -0.707 | -2.040 | **0.7906** | **CLIPPED [LOW < 0.80] (0.791)** |
-| **#11**| 2026-09-09 | -1.23% | 40.2 | -1.75 | 1.65% | `STRONG_BUY` | -0.905 | -0.709 | **1.0142** | **UNCLIPPED (Within Bound) [OK]** |
-| **#12**| 2026-09-15 | -1.77% | 29.8 | -6.74 | 1.84% | `HOLD` | -0.900 | -0.730 | **1.0142** | **UNCLIPPED (Within Bound) [OK]** |
-| **#13**| 2026-09-18 | -1.41% | 34.0 | -7.62 | 1.84% | `SELL` | -0.856 | -1.063 | **0.9183** | **UNCLIPPED (Within Bound) [OK]** |
-| **#14**| 2026-09-23 | +0.61% | 31.8 | -3.70 | 1.59% | `SELL` | -0.973 | +0.225 | **1.0193** | **UNCLIPPED (Within Bound) [OK]** |
-| **#15**| 2026-09-28 | -2.32% | 22.0 | -5.09 | 1.70% | `STRONG_BUY` | -0.884 | -0.178 | **1.0914** | **UNCLIPPED (Within Bound) [OK]** |
-| **#16**| 2026-10-01 | -1.63% | 24.0 | -7.13 | 1.74% | `HOLD` | -0.861 | -0.131 | **0.9751** | **UNCLIPPED (Within Bound) [OK]** |
-| **#17**| 2026-10-07 | -0.85% | 42.7 | -0.64 | 1.74% | `BUY` | -0.753 | -0.243 | **1.0343** | **UNCLIPPED (Within Bound) [OK]** |
-| **#18**| 2026-10-12 | -0.97% | 30.6 | -2.41 | 1.98% | `SELL` | -0.872 | +0.708 | **1.0479** | **UNCLIPPED (Within Bound) [OK]** |
-| **#19**| 2026-10-15 | +3.44% | 49.1 | +2.63 | 2.06% | `HOLD` | -0.795 | +1.159 | **1.0623** | **UNCLIPPED (Within Bound) [OK]** |
-| **#20**| 2026-10-22 | -2.03% | 49.5 | +5.04 | 2.31% | `BUY` | -0.661 | +0.923 | **1.1500** | **UNCLIPPED (Within Bound) [OK]** |
+### 5.2 Rollout Step Dynamics
 
-### 5.3 Technical Analysis: Why Specific Logs Were Clipped vs. Not Clipped
-
-#### A. Why Logs #2, #4, #5, and #10 Were Clipped (`r_t(θ) < 0.800`):
-1. **Strong Negative Advantage**: On these steps, the actions chosen in the rollout had severe negative advantages (e.g., $\widehat{A} = -1.342$ on #2, $\widehat{A} = -1.764$ on #4, $\widehat{A} = -2.040$ on #10).
-2. **Aggressive Gradient Push**: Because the actions underperformed the Critic baseline $V(s)$, the unclipped policy gradient $- \nabla_\theta \log \pi_\theta(a_t) \widehat{A}_t$ pushed strongly to reduce the probability of these actions.
-3. **Breach of Trust-Region Floor**: The updated probability ratio dropped below the lower bound:
-   * Log #2: $r_t = 0.783 < 0.800$
-   * Log #4: $r_t = 0.765 < 0.800$
-   * Log #5: $r_t = 0.775 < 0.800$
-   * Log #10: $r_t = 0.791 < 0.800$
-4. **Surrogate Clipping Enforcement**: At $r_t < 0.800$, PPO sets the gradient multiplier to zero:
-   $$\frac{\partial}{\partial \theta} \left[ \text{clip}(r_t(\theta), 0.80, 1.20) \widehat{A}_t \right] = 0$$
-   This prevented catastrophic policy collapse from overreacting to single-step negative drawdowns.
-
-#### B. Why Logs #1, #3, #6–#9, and #11–#20 Were NOT Clipped (`0.800 <= r_t(θ) <= 1.200`):
-1. **Measured Policy Adjustments**: In these steps, the policy ratio remained comfortably inside the $[0.800, 1.200]$ corridor (e.g., $r_t = 1.0230$ on #7, $r_t = 0.9844$ on #8, $r_t = 1.0479$ on #18).
-2. **Unimpeded Gradient Propagation**: Because the policy stayed within its trust region, $\min(r_t \widehat{A}_t, \text{clip}(r_t) \widehat{A}_t) = r_t \widehat{A}_t$. The network was allowed to update its weights smoothly without artificial gradient clamping.
-3. **Controlled Positive Exploration**: On Log #20, positive momentum and advantage ($\widehat{A} = +0.923$) increased the `BUY` probability from $r_t = 1.00 \to 1.1500$. Because $1.1500 \le 1.200$, the agent safely expanded its conviction without hitting the upper clip boundary.
+| Step# | Date | Ret_1d (%) | RSI-14 | MACD Hist | Action Taken | Critic $V(s)$ | TD Target $y_t$ | TD Error $\delta_t$ |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **#1** | 2026-07-28 | -0.96% | 47.4 | -2.52 | `STRONG_BUY` | -0.760 | -0.812 | **-0.052** |
+| **#2** | 2026-07-31 | +1.15% | 53.6 | +1.03 | `SELL` | -0.876 | -0.742 | **+0.134** |
+| **#3** | 2026-08-05 | -0.84% | 45.8 | +1.12 | `SELL` | -0.762 | -0.810 | **-0.048** |
+| **#4** | 2026-08-10 | -0.56% | 55.8 | +5.50 | `HOLD` | -0.619 | -0.655 | **-0.036** |
+| **#5** | 2026-08-13 | -0.90% | 60.4 | +4.11 | `HOLD` | -0.665 | -0.598 | **+0.067** |
+| **#6** | 2026-08-18 | +0.46% | 62.5 | +1.96 | `SELL` | -0.603 | -0.685 | **-0.082** |
+| **#7** | 2026-08-21 | +0.21% | 49.0 | +0.29 | `BUY` | -0.692 | -0.880 | **-0.188** |
+| **#8** | 2026-08-26 | -1.44% | 37.2 | -1.39 | `BUY` | -0.889 | -0.985 | **-0.096** |
+| **#9** | 2026-08-31 | -0.78% | 29.6 | -4.57 | `SELL` | -0.997 | -0.701 | **+0.296** |
+| **#10**| 2026-09-03 | -0.81% | 47.3 | -0.98 | `HOLD` | -0.707 | -0.895 | **-0.188** |
 
 ---
 
 ## 6. How to Re-Run All Diagnostics Locally
 
 ```bash
-# 1. Run Complete Training Telemetry (Policy Shifts, Layer Gradients, Loss Curves)
+# 1. Run Complete Actor-Critic Training Telemetry
 python3 telemetry.py --symbol RELIANCE.NS --epochs 5 --cycles 2
 
-# 2. Run 20-Log PPO Surrogate Clipping & Feature Inspection Table
-python3 clip_inspector.py --symbol RELIANCE.NS --logs 20
+# 2. Run End-to-End CLI Pipeline
+python3 main.py --symbol RELIANCE.NS --epochs 15
 
-# 3. Launch Institutional Streamlit Terminal (0 Emojis)
+# 3. Launch Institutional Streamlit Terminal
 streamlit run app.py
 ```
 
@@ -258,4 +229,4 @@ streamlit run app.py
 
 ### Conclusion
 
-QuantEdge AI achieves institutional reliability by replacing unconstrained heuristic methods with **synchronous PPO**, regularizing feature sensitivity through **asymmetric Sortino and drawdown penalties**, and guaranteeing that policy drift remains bounded via **trust-region surrogate clipping**.
+QuantEdge AI achieves institutional reliability by deploying a **basic Actor-Critic engine**, regularizing feature sensitivity through **asymmetric Sortino and drawdown penalties**, and governing execution via strict **SEBI-compliant risk boundaries**.

@@ -27,7 +27,7 @@ FEATURE_NAMES = [
 
 class PolicyExplainer:
     """
-    Computes input feature attribution and factor decomposition for the PPO Actor network
+    Computes input feature attribution and factor decomposition for the Actor network
     using first-order gradient sensitivity: S_i = |d(logit_action)/d(feature_i)|.
     """
 

@@ -1,6 +1,6 @@
 # QuantEdge AI — Indian Stock Market (NSE / BSE) Quantitative RL Engine
 
-**QuantEdge AI** is an institutional-grade quantitative trading framework engineered specifically for the **National Stock Exchange of India (NSE)** and **Bombay Stock Exchange (BSE)**. The platform discards classical black-box heuristic predictors in favor of a **Pure Reinforcement Learning (RL) Framework** based on a custom **Markov Decision Process (MDP)**, deep **Actor-Critic Proximal Policy Optimization (PPO)** neural architecture, multi-agent consensus deliberation, and strict SEBI-compliant risk governance.
+**QuantEdge AI** is an institutional-grade quantitative trading framework engineered specifically for the **National Stock Exchange of India (NSE)** and **Bombay Stock Exchange (BSE)**. The platform discards classical black-box heuristic predictors in favor of a **Pure Reinforcement Learning (RL) Framework** based on a custom **Markov Decision Process (MDP)**, deep **Actor-Critic** neural architecture, multi-agent consensus deliberation, and strict SEBI-compliant risk governance.
 
 Market data is downloaded directly from Yahoo Finance to local CSV files in `data/`, and all feature computations, environment rollouts, backtests, and inference run directly on the local files.
 
@@ -27,7 +27,7 @@ quantedge/
 │   ├── __init__.py                    # Core exports
 │   ├── data.py                        # Yahoo Finance downloader, local CSV storage & loaders
 │   ├── features.py                    # Temporal causality feature engineering (RSI, MACD, ATR, Vol, SMA)
-│   ├── models.py                      # ActorCriticNetwork (9,573 params), IndianTradingEnv, PPOOptimizer
+│   ├── models.py                      # ActorCriticNetwork (9,573 params), IndianTradingEnv, ActorCriticOptimizer
 │   ├── regime.py                      # Indian Macro Regime Classifier (VIX & NIFTY momentum)
 │   ├── risk.py                        # Half-Kelly sizing, ATR volatility stops (INR), 95% Daily VaR, Crisis override
 │   ├── agents.py                      # Multi-agent consensus (Policy Actor, Value Critic, Regime, Risk Governor)
@@ -56,8 +56,11 @@ quantedge/
    - 4 discrete targets: `SELL` (0%), `HOLD` (25%), `BUY` (65%), `STRONG_BUY` (100%).
    - Indian market statutory turnover friction ($0.1\%$ per trade turnover).
    - Downside semi-variance penalty ($\lambda = 0.5$) and peak drawdown penalty ($0.2 \times \text{DD}$).
-5. **Optimization**:
-   - GAE ($\gamma = 0.99, \lambda = 0.95$), clipped surrogate objective ($\epsilon = 0.2$), entropy bonus ($0.02$), gradient clipping ($0.5$).
+5. **Basic Actor-Critic Optimization**:
+   - 1-step TD Error: $\delta_t = r_t + \gamma V(s_{t+1})(1 - d_t) - V(s_t)$ with $\gamma = 0.99$.
+   - Actor Policy Loss: $-\mathbb{E}[\log \pi(a_t|s_t) \cdot \delta_t]$.
+   - Critic Baseline Loss: $0.5 \cdot \mathbb{E}[(V(s_t) - \text{Target})^2]$.
+   - Foundational Actor-Critic without surrogate clipping or complex policy ratios.
 6. **Risk Governance & Capital Allocation**:
    - Half-Kelly sizing bounded by a $20\%$ hard single-stock cap.
    - Dynamic ATR volatility trailing stops and profit targets in Indian Rupees (₹).
@@ -79,7 +82,7 @@ python3 main.py --symbol RELIANCE.NS --epochs 15
 ```
 Options:
 - `--symbol <TICKER>`: E.g., `RELIANCE.NS`, `TCS.NS`, `HDFCBANK.NS`, `INFY.NS`, `ITC.NS`
-- `--epochs <N>`: Training epochs per PPO rollout cycle
+- `--epochs <N>`: Training epochs per rollout cycle
 - `--download`: Download/refresh latest data before executing
 
 ### Run Complete Multi-Asset Institutional Portfolio Simulation (10 Stocks):
@@ -92,12 +95,7 @@ python3 main.py --portfolio --epochs 10
 streamlit run app.py
 ```
 
-### Run PPO Policy Telemetry (Loss, Gradients, Policy Shift):
+### Run Actor-Critic Policy Telemetry (Loss, Gradients, Policy Shift):
 ```bash
 python3 telemetry.py --symbol RELIANCE.NS --epochs 5 --cycles 2
-```
-
-### Inspect 20-Step PPO Surrogate Clipping & Features:
-```bash
-python3 clip_inspector.py --symbol RELIANCE.NS --logs 20
 ```

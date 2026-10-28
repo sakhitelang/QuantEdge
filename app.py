@@ -1,7 +1,7 @@
 """
 QuantEdge AI — Institutional Indian Stock Market (NSE / BSE) Quantitative RL Terminal
 High-performance Streamlit Web Application for Reinforcement Learning Trading,
-PPO Neural Inference, Multi-Agent Consensus, and Institutional Risk Governance.
+Actor-Critic Neural Inference, Multi-Agent Consensus, and Institutional Risk Governance.
 """
 
 import os
@@ -277,13 +277,13 @@ with st.sidebar:
         help="Select any large-cap NSE bluechip from the institutional trading universe."
     )
 
-    ppo_epochs = st.slider(
-        "PPO Rollout Epochs",
-        min_value=5,
+    ac_epochs = st.slider(
+        "Actor-Critic Rollout Epochs",
+        min_value=1,
         max_value=30,
         value=15,
-        step=5,
-        help="Training iterations per PPO policy gradient update."
+        step=1,
+        help="Training iterations per Actor-Critic policy gradient update."
     )
 
     capital_book_crores = st.number_input(
@@ -302,7 +302,7 @@ with st.sidebar:
         <b>SEBI Algo Compliance:</b><br>
         • Half-Kelly Position Bounding<br>
         • Asymmetric Semi-Variance Penalty<br>
-        • Exact 9,573-Param PPO Network<br>
+        • Exact 9,573-Param Actor-Critic Network<br>
         • 95% Daily Historical & Parametric VaR
     </div>
     """, unsafe_allow_html=True)
@@ -318,7 +318,7 @@ st.markdown("""
             <span class="text-gradient">QuantEdge AI</span> <span style="font-size: 1.2rem; color: #64748B; font-weight: 400;">| Institutional RL Engine</span>
         </h1>
         <p style="margin: 4px 0 0 0; color: #94A3B8; font-size: 0.9rem;">
-            Deep Actor-Critic (PPO) Quantitative Execution, Multi-Agent Consensus & SEBI Risk Governance
+            Deep Actor-Critic Quantitative Execution, Multi-Agent Consensus & SEBI Risk Governance
         </p>
     </div>
     <div style="text-align: right;">
@@ -337,7 +337,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Single-Stock RL Terminal",
     "10-Stock Portfolio (INR 1 Cr)",
     "Deep Explainability Lab",
-    "PPO Training Sandbox",
+    "Actor-Critic Training Sandbox",
     "Macro Regimes & Sentiment",
 ])
 
@@ -346,10 +346,10 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # TAB 1: Single-Stock RL Trading Terminal
 # =============================================================================
 with tab1:
-    with st.spinner(f"Ingesting local CSV & executing PPO Actor-Critic for {selected_symbol}..."):
+    with st.spinner(f"Ingesting local CSV & executing Actor-Critic for {selected_symbol}..."):
         feat_df = get_cached_ticker_data(selected_symbol)
         rl_sys, train_stats, eval_res, raw_pred = get_trained_rl_system(
-            selected_symbol, epochs=ppo_epochs, vix_val=vix_val, nifty_ret=nifty_ret
+            selected_symbol, epochs=ac_epochs, vix_val=vix_val, nifty_ret=nifty_ret
         )
 
         curr_price = float(feat_df["Close"].iloc[-1])
@@ -801,23 +801,20 @@ with tab3:
 
 
 # =============================================================================
-# TAB 4: PPO Training Sandbox
+# TAB 4: Actor-Critic Training Sandbox
 # =============================================================================
 with tab4:
-    st.markdown("### PPO Actor-Critic Hyperparameter Sandbox & Rollout Simulator")
+    st.markdown("### Actor-Critic Hyperparameter Sandbox & Rollout Simulator")
     st.markdown("""
-    Explore and fine-tune the core parameters of the Proximal Policy Optimization engine.
-    Observe real-time loss dynamics, Generalized Advantage Estimation (GAE), and entropy bonus.
+    Explore and fine-tune the core parameters of the foundational Actor-Critic engine.
+    Observe real-time policy and critic loss dynamics across rollouts.
     """)
 
-    sb_c1, sb_c2, sb_c3 = st.columns(3)
+    sb_c1, sb_c2 = st.columns(2)
     with sb_c1:
         custom_lr = st.select_slider("Learning Rate", options=[1e-4, 5e-4, 1e-3, 1.8e-3, 3e-3, 5e-3], value=1.8e-3)
         custom_gamma = st.slider("Discount Factor (γ)", 0.90, 0.999, 0.99, step=0.01)
     with sb_c2:
-        custom_clip = st.slider("Surrogate Clip Epsilon (ε)", 0.10, 0.35, 0.20, step=0.05)
-        custom_entropy = st.slider("Entropy Regularization (c₂)", 0.00, 0.10, 0.02, step=0.01)
-    with sb_c3:
         custom_downside = st.slider("Downside Semivariance Penalty (λ)", 0.0, 2.0, 0.5, step=0.1)
         custom_friction = st.slider("Statutory Friction (%)", 0.0, 0.5, 0.10, step=0.05) / 100.0
 
@@ -839,7 +836,7 @@ with tab4:
         l_fig.add_trace(go.Scatter(x=loss_df["cycle"], y=loss_df["policy_loss"], name="Actor Policy Loss", line=dict(color="#38BDF8", width=2)))
         l_fig.add_trace(go.Scatter(x=loss_df["cycle"], y=loss_df["value_loss"], name="Critic Value MSE Loss", line=dict(color="#F59E0B", width=2)))
         l_fig.update_layout(
-            title="PPO Optimization Trajectory across Rollout Cycles",
+            title="Actor-Critic Optimization Trajectory across Rollout Cycles",
             template="plotly_dark",
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor="rgba(17, 24, 39, 0.3)",
